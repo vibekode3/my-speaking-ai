@@ -1,3 +1,4 @@
+// src/lib/components/ConnectionManager.js
 export class ConnectionManager {
 	constructor(debugLogger) {
 		this.debugLogger = debugLogger;

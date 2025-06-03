@@ -1,3 +1,4 @@
+// src/lib/components/WebRTCManager.js
 export class WebRTCManager {
 	constructor(debugLogger) {
 		this.debugLogger = debugLogger;

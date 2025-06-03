@@ -1,3 +1,4 @@
+// src/routes/api/session/+server.js
 import { json } from '@sveltejs/kit';
 import { OPENAI_API_KEY } from '$env/static/private';
 

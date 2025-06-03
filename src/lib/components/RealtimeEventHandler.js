@@ -1,3 +1,4 @@
+// src/lib/components/RealtimeEventHandler.js
 export class RealtimeEventHandler {
 	constructor(debugLogger, eventDispatcher) {
 		this.debugLogger = debugLogger;

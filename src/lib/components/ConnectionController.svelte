@@ -1,3 +1,4 @@
+<!-- src/lib/components/ConnectionController.svelte -->
 <script>
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	

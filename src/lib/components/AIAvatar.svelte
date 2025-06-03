@@ -1,3 +1,4 @@
+<!-- src/lib/components/AIAvatar.svelte -->
 <script>
 	export let isConnected = false;
 	export let isSpeaking = false;

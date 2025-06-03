@@ -1,3 +1,4 @@
+<!-- src/lib/components/StatusIndicator.svelte -->
 <script>
 	export let isConnecting = false;
 	export let isConnected = false;

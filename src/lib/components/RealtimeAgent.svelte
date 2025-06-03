@@ -1,3 +1,4 @@
+<!-- src/lib/components/RealtimeAgent.svelte -->
 <script>
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { WebRTCManager } from './WebRTCManager.js';

@@ -1,3 +1,4 @@
+<!-- src/lib/components/ConversationLog.svelte -->
 <script>
 	export let messages = [];
 	
