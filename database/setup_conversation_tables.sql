@@ -56,3 +56,5 @@ CREATE TRIGGER update_conversation_records_updated_at
     BEFORE UPDATE ON conversation_records 
     FOR EACH ROW 
     EXECUTE FUNCTION update_updated_at_column(); 
+
+    -- 테이블 생성 확인
