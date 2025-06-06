@@ -35,10 +35,22 @@
 	
 	// 연결 시작
 	async function handleConnect() {
+		console.log('🔵 handleConnect 호출됨');
+		console.log('🔵 realtimeAgent 상태:', realtimeAgent);
+		console.log('🔵 현재 연결 상태:', { isConnected, isConnecting, isDisconnecting });
+		
+		if (!realtimeAgent) {
+			console.error('❌ realtimeAgent가 없습니다');
+			dispatch('error', 'AI 에이전트가 초기화되지 않았습니다. 페이지를 새로고침해보세요.');
+			return;
+		}
+		
 		try {
+			console.log('🔵 realtimeAgent.connect() 호출 시작');
 			await realtimeAgent.connect();
+			console.log('🔵 realtimeAgent.connect() 완료');
 		} catch (err) {
-			console.error('Connection failed:', err);
+			console.error('❌ Connection failed:', err);
 			dispatch('error', err.message);
 		}
 	}

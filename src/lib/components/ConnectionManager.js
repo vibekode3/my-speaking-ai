@@ -80,7 +80,15 @@ export class ConnectionManager {
 		return answerSdp;
 	}
 
-	createSessionConfig() {
+	createSessionConfig(customPrompt = '') {
+		// 기본 프롬프트
+		const defaultPrompt = `당신은 친근하고 도움이 되는 영어 회화 선생님입니다. 
+사용자와 자연스러운 영어 대화를 나누며, 필요시 발음이나 문법에 대한 피드백을 제공해주세요.
+대화는 영어로 진행하되, 사용자가 이해하기 어려워하면 한국어로도 설명해주세요.`;
+
+		// 커스텀 프롬프트가 있으면 사용, 없으면 기본 프롬프트 사용
+		const finalPrompt = customPrompt.trim() || defaultPrompt;
+		
 		return {
 			type: 'session.update',
 			session: {
@@ -98,9 +106,7 @@ export class ConnectionManager {
 					prompt: 'This is an English conversation practice session. Expect English words and phrases.',
 					language: 'en'
 				},
-				instructions: `당신은 친근하고 도움이 되는 영어 회화 선생님입니다. 
-사용자와 자연스러운 영어 대화를 나누며, 필요시 발음이나 문법에 대한 피드백을 제공해주세요.
-대화는 영어로 진행하되, 사용자가 이해하기 어려워하면 한국어로도 설명해주세요.`,
+				instructions: finalPrompt,
 				modalities: ['text', 'audio'],
 				temperature: 0.8
 			}

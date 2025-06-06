@@ -8,13 +8,49 @@
         addMessageToCurrentConversation, 
         endCurrentConversation 
     } from '../stores/conversation.js';
+    import { selectedPrompt } from '../stores/userPrompts.js';
     
     const dispatch = createEventDispatcher();
     
     export let isConnected = false;
     export let isConnecting = false;
+    export let customPrompt = '';
+    export let promptTemplate = 'friendly';
+    export let promptId = null;
+    export let promptName = '';
     
     let conversationStatus = 'inactive'; // 'inactive', 'starting', 'active'
+    
+    // 프롬프트 템플릿 이름 매핑
+    const templateNames = {
+        friendly: '친근한 선생님',
+        strict: '엄격한 선생님', 
+        business: '비즈니스 전문가',
+        casual: '캐주얼 친구',
+        custom: '커스텀 설정'
+    };
+    
+    // customPrompt에서 템플릿 유형 감지
+    $: {
+        if (customPrompt) {
+            // 기본 템플릿과 일치하는지 확인
+            const friendlyTemplate = `당신은 친근하고 도움이 되는 영어 회화 선생님입니다. 
+사용자와 자연스러운 영어 대화를 나누며, 필요시 발음이나 문법에 대한 피드백을 제공해주세요.
+대화는 영어로 진행하되, 사용자가 이해하기 어려워하면 한국어로도 설명해주세요.`;
+            
+            if (customPrompt.includes('친근하고 도움이 되는 영어 회화 선생님')) {
+                promptTemplate = 'friendly';
+            } else if (customPrompt.includes('엄격하지만 효과적인 영어 회화 선생님')) {
+                promptTemplate = 'strict';
+            } else if (customPrompt.includes('비즈니스 영어 전문 회화 선생님')) {
+                promptTemplate = 'business';
+            } else if (customPrompt.includes('편안하고 재미있는 영어 회화 친구')) {
+                promptTemplate = 'casual';
+            } else {
+                promptTemplate = 'custom';
+            }
+        }
+    }
     
     // 현재 대화 상태 모니터링
     $: {
@@ -39,9 +75,9 @@
     }
     
     // 메시지 추가 처리
-    export async function addMessage(speaker, message) {
+    export async function addMessage(speaker, message, usageInfo = null) {
         if ($currentConversation.id) {
-            await addMessageToCurrentConversation(speaker, message);
+            await addMessageToCurrentConversation(speaker, message, usageInfo);
         }
     }
     
@@ -56,15 +92,27 @@
         
         try {
             conversationStatus = 'starting';
-            const conversationId = await startNewConversation();
+            
+            // AI 설정 정보 준비
+            const aiSettings = {
+                template: promptTemplate,
+                templateName: promptName || templateNames[promptTemplate] || templateNames.friendly,
+                customPrompt: customPrompt || '',
+                updatedAt: new Date().toISOString()
+            };
+            
+            const conversationId = await startNewConversation(aiSettings, promptId);
             
             dispatch('conversation-started', {
                 conversationId,
-                title: $currentConversation.title
+                title: $currentConversation.title,
+                aiSettings,
+                promptId
             });
             
-            // 시작 메시지 추가
-            await addMessageToCurrentConversation('시스템', '새로운 영어회화 세션이 시작되었습니다.');
+            // 시작 메시지에 AI 설정 정보 포함
+            const settingMessage = `새로운 영어회화 세션이 시작되었습니다. AI 설정: ${aiSettings.templateName}`;
+            await addMessageToCurrentConversation('시스템', settingMessage);
             
         } catch (error) {
             console.error('대화 시작 오류:', error);
@@ -148,7 +196,7 @@
     
     {#if $currentConversation.id}
         <div class="mt-3 p-3 bg-blue-50 rounded-lg">
-            <div class="flex justify-between items-center text-sm">
+            <div class="flex justify-between items-center text-sm mb-2">
                 <span class="text-blue-700">
                     📝 현재 메시지: {$currentConversation.messages.length}개
                 </span>
@@ -156,6 +204,16 @@
                     ID: {$currentConversation.id.slice(0, 8)}...
                 </span>
             </div>
+            {#if $currentConversation.aiSettings?.templateName}
+                <div class="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                    🤖 AI 설정: {$currentConversation.aiSettings.templateName}
+                </div>
+            {/if}
+            {#if promptName}
+                <div class="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded mt-1">
+                    📝 사용 프롬프트: {promptName}
+                </div>
+            {/if}
         </div>
     {/if}
 </div> 

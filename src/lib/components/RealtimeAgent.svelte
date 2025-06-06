@@ -4,6 +4,7 @@
 	import { WebRTCManager } from './WebRTCManager.js';
 	import { RealtimeEventHandler } from './RealtimeEventHandler.js';
 	import { ConnectionManager } from './ConnectionManager.js';
+	import { UsageTracker } from '$lib/utils/usageTracker.js';
 	
 	const dispatch = createEventDispatcher();
 	
@@ -12,6 +13,8 @@
 	export let isSpeaking = false;
 	export let isDisconnecting = false;
 	export let error = null;
+	export let customPrompt = '';
+	export let conversationId = null; // 현재 대화 ID
 	
 	let debugInfo = [];
 	
@@ -19,6 +22,7 @@
 	let webRTCManager;
 	let eventHandler;
 	let connectionManager;
+	let usageTracker;
 	
 	// 디버그 로그 추가 함수
 	function addDebugLog(message, data = null) {
@@ -36,6 +40,39 @@
 		webRTCManager = new WebRTCManager(addDebugLog);
 		eventHandler = new RealtimeEventHandler(addDebugLog, dispatch);
 		connectionManager = new ConnectionManager(addDebugLog);
+		usageTracker = new UsageTracker();
+		
+		// 이벤트 핸들러에 사용량 추적기 설정
+		eventHandler.setUsageTracker(usageTracker);
+		
+		// 사용량 추적 이벤트 리스닝
+		eventHandler.aiResponseHandler.dispatch = (eventType, data) => {
+			dispatch(eventType, data);
+			
+			// 사용량 추적 이벤트 처리
+			if (eventType === 'usage-tracked') {
+				handleUsageTracked(data);
+			}
+		};
+	}
+	
+	// 사용량 추적 이벤트 핸들러
+	function handleUsageTracked(data) {
+		addDebugLog('📊 사용량 추적됨', {
+			cost: `$${UsageTracker.centsToUSD(data.costs.totalCostCents)}`,
+			inputTokens: UsageTracker.formatTokenCount(data.usage.inputTokens),
+			outputTokens: UsageTracker.formatTokenCount(data.usage.outputTokens),
+			accumulatedCost: `$${UsageTracker.centsToUSD(data.accumulated.totalCostCents)}`
+		});
+		
+		// 부모 컴포넌트에 사용량 정보 전달
+		dispatch('usage-update', data);
+	}
+	
+	// 대화 ID 변경 감지
+	$: if (conversationId && usageTracker) {
+		usageTracker.startConversationSession(conversationId);
+		addDebugLog('📊 사용량 추적 세션 시작', { conversationId });
 	}
 	
 	// 예상치 못한 연결 끊김 처리
@@ -68,7 +105,7 @@
 		}
 		
 		// 연결 완료 후 세션 시작
-		const sessionConfig = connectionManager.createSessionConfig();
+		const sessionConfig = connectionManager.createSessionConfig(customPrompt);
 		addDebugLog('📤 세션 설정 전송', sessionConfig);
 		eventHandler.sendEvent(sessionConfig, webRTCManager);
 		
@@ -115,6 +152,10 @@
 		try {
 			isConnecting = true;
 			error = null;
+			
+			// 🔥 연결 시작 이벤트 발생
+			dispatch('connecting');
+			
 			const connectionId = connectionManager.generateConnectionId();
 			addDebugLog('🚀 연결 시작', { connectionId });
 			
@@ -186,6 +227,12 @@
 			webRTCManager.cleanup();
 		}
 		
+		// 사용량 추적 세션 종료
+		if (usageTracker) {
+			await usageTracker.endConversationSession();
+			addDebugLog('📊 사용량 추적 세션 종료');
+		}
+		
 		// 상태 초기화
 		isConnected = false;
 		isConnecting = false;
@@ -228,7 +275,13 @@
 			webRTCManager.forceDisconnect();
 		}
 		
-		// 4. 사용자에게 즉시 피드백
+		// 4. 사용량 추적 세션 종료
+		if (usageTracker) {
+			await usageTracker.endConversationSession();
+			addDebugLog('📊 사용량 추적 세션 종료됨');
+		}
+		
+		// 5. 사용자에게 즉시 피드백
 		dispatch('disconnected');
 		dispatch('message', {
 			speaker: '시스템',
@@ -236,7 +289,7 @@
 			timestamp: new Date().toLocaleTimeString()
 		});
 		
-		// 5. 강제 종료 타이머 설정 (3초로 단축)
+		// 6. 강제 종료 타이머 설정 (3초로 단축)
 		connectionManager.setForceDisconnectTimeout(async () => {
 			addDebugLog('⏰ 강제 종료 타이머 실행됨');
 			await forceCleanup();
@@ -248,7 +301,7 @@
 		}, 3000);
 		
 		try {
-			// 6. 완전한 정리 수행
+			// 7. 완전한 정리 수행
 			await forceCleanup();
 			
 			addDebugLog('✅ 연결 해제 완료');
@@ -265,6 +318,11 @@
 			
 			dispatch('error', `연결 해제 중 오류: ${error.message}`);
 		}
+	}
+	
+	// 현재 세션 사용량 조회
+	export function getCurrentUsage() {
+		return usageTracker ? usageTracker.getCurrentSessionUsage() : null;
 	}
 	
 	// 연결 상태 확인 함수 (외부에서 호출 가능)

@@ -6,7 +6,9 @@ export const currentConversation = writable({
     id: null,
     messages: [],
     startTime: null,
-    title: '영어회화 기록'
+    title: '영어회화 기록',
+    aiSettings: null,
+    promptId: null
 });
 
 // 대화 기록 목록
@@ -16,7 +18,7 @@ export const conversationHistory = writable([]);
 export const conversationLoading = writable(false);
 
 // 현재 대화 세션 시작
-export async function startNewConversation() {
+export async function startNewConversation(aiSettings = null, promptId = null) {
     try {
         conversationLoading.set(true);
         
@@ -29,7 +31,11 @@ export async function startNewConversation() {
             user_id: user.id,
             title: `영어회화 기록 - ${new Date().toLocaleDateString()}`,
             messages: [],
-            started_at: new Date().toISOString()
+            started_at: new Date().toISOString(),
+            ai_settings: aiSettings || {},
+            prompt_template: aiSettings?.template || 'friendly',
+            custom_prompt: aiSettings?.customPrompt || ''
+            // prompt_id는 일시적으로 비활성화 (데이터베이스 스키마 문제로 인해)
         };
 
         const { data, error } = await supabase
@@ -44,7 +50,9 @@ export async function startNewConversation() {
             id: data.id,
             messages: [],
             startTime: new Date(),
-            title: data.title
+            title: data.title,
+            aiSettings: data.ai_settings,
+            promptId: promptId // 메모리에서만 유지
         });
 
         return data.id;
@@ -57,13 +65,14 @@ export async function startNewConversation() {
 }
 
 // 현재 대화에 메시지 추가
-export async function addMessageToCurrentConversation(speaker, message) {
+export async function addMessageToCurrentConversation(speaker, message, usageInfo = null) {
     try {
         currentConversation.update(conv => {
             const newMessage = {
                 speaker,
                 message,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                ...(usageInfo && { usage: usageInfo }) // 사용량 정보가 있으면 추가
             };
             
             return {
@@ -113,7 +122,9 @@ export async function endCurrentConversation() {
             id: null,
             messages: [],
             startTime: null,
-            title: '영어회화 기록'
+            title: '영어회화 기록',
+            aiSettings: null,
+            promptId: null
         });
 
         // 대화 기록 목록 새로고침
@@ -149,6 +160,7 @@ export async function loadConversationHistory() {
             return;
         }
 
+        // 대화 기록 가져오기 (프롬프트 조인 비활성화)
         const { data, error } = await supabase
             .from('conversation_records')
             .select('*')

@@ -8,26 +8,82 @@
 	import ConversationManager from '$lib/components/ConversationManager.svelte';
 	import ConnectionController from '$lib/components/ConnectionController.svelte';
 	import DebugPanel from '$lib/components/DebugPanel.svelte';
+	import PromptCustomizer from '$lib/components/PromptCustomizer.svelte';
 	import { user, loading, initAuth } from '$lib/stores/auth.js';
+	import { currentConversation } from '$lib/stores/conversation.js';
+	import { checkOnboardingStatus } from '$lib/onboarding.js';
+	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 
 	let realtimeAgent;
 	let conversationManager;
-	let isConnected = false;
-	let isConnecting = false;
-	let isSpeaking = false;
-	let isDisconnecting = false;
-	let error = null;
-	let messages = [];
-	let debugLogs = [];
-	let showDebugPanel = false;
-	let showHistory = false;
-	let connectionStatus = null;
+	let isConnected = $state(false);
+	let isConnecting = $state(false);
+	let isSpeaking = $state(false);
+	let isDisconnecting = $state(false);
+	let error = $state(null);
+	let messages = $state([]);
+	let debugLogs = $state([]);
+	let showDebugPanel = $state(false);
+	let showHistory = $state(false);
+	let showPromptCustomizer = $state(false);
+	let connectionStatus = $state(null);
+	let customPrompt = $state('');
+	let promptId = $state(null);
+	let promptName = $state('');
 
 	// 인증 초기화
 	onMount(() => {
 		initAuth();
+		console.log('메인 페이지 마운트됨');
 	});
+
+	// realtimeAgent 상태 추적
+	$effect(() => {
+		console.log('🔵 realtimeAgent 상태 변경:', realtimeAgent);
+		console.log('🔵 현재 연결 상태들:', { isConnected, isConnecting, isSpeaking, isDisconnecting });
+	});
+
+	// 사용자 상태 변경 감지 및 온보딩 체크
+	$effect(() => {
+		if ($user && !$loading) {
+			checkUserOnboardingStatus();
+		}
+	});
+
+	async function checkUserOnboardingStatus() {
+		try {
+			console.log('메인 페이지에서 온보딩 상태 확인:', $user.id);
+			
+			// 타임아웃 설정
+			const timeoutPromise = new Promise((_, reject) => {
+				setTimeout(() => {
+					reject(new Error('온보딩 상태 확인 시간 초과'));
+				}, 5000); // 5초 타임아웃
+			});
+			
+			// race를 사용하여 타임아웃 적용
+			const result = await Promise.race([
+				checkOnboardingStatus($user.id),
+				timeoutPromise
+			]);
+			
+			if (result.success) {
+				if (!result.data.onboarding_complete) {
+					console.log('메인 페이지: 온보딩 미완료 - 리다이렉트');
+					goto('/onboarding');
+					return;
+				}
+				console.log('메인 페이지: 온보딩 완료 - 정상 진행');
+			} else {
+				console.error('메인 페이지: 온보딩 상태 확인 실패:', result.error);
+				// 오류 발생 시에도 사용자 경험을 위해 정상 진행
+			}
+		} catch (error) {
+			console.error('메인 페이지: 온보딩 체크 중 오류:', error);
+			// 타임아웃이나 오류 발생 시에도 정상 진행
+		}
+	}
 
 	// 대화 로그에 메시지 추가
 	function addToLog(speaker, message) {
@@ -52,11 +108,29 @@
 	// 이벤트 핸들러들
 	function handleConnected() {
 		console.log('Connected to AI');
+		isConnected = true;
+		isConnecting = false;
 	}
 
 	function handleDisconnected() {
 		console.log('Disconnected from AI');
+		isConnected = false;
+		isConnecting = false;
 		isDisconnecting = false;
+	}
+	
+	function handleConnecting() {
+		console.log('Connecting to AI');
+		isConnecting = true;
+		isConnected = false;
+		isDisconnecting = false;
+	}
+	
+	function handleDisconnecting() {
+		console.log('Disconnecting from AI');
+		isDisconnecting = true;
+		isConnected = false;
+		isConnecting = false;
 	}
 
 	function handleMessage(event) {
@@ -73,14 +147,48 @@
 		}
 	}
 
+	// 사용량 정보가 포함된 메시지 처리
+	function handleMessageWithUsage(event) {
+		const { message, usage } = event.detail;
+		
+		// 화면에 표시할 메시지에 사용량 정보 추가
+		const messageWithUsage = {
+			...message,
+			usage: usage
+		};
+		
+		// 기존 메시지 중에서 같은 AI 메시지가 있다면 사용량 정보를 추가
+		const lastMessageIndex = messages.findLastIndex(
+			msg => msg.speaker === 'AI 선생님' && msg.message === message.message && msg.timestamp === message.timestamp
+		);
+		
+		if (lastMessageIndex !== -1) {
+			// 기존 메시지에 사용량 정보 추가
+			messages[lastMessageIndex] = { ...messages[lastMessageIndex], usage: usage };
+			messages = [...messages]; // 반응성 트리거
+		}
+		
+		// 대화 매니저에 사용량 정보와 함께 저장
+		if (conversationManager) {
+			conversationManager.addMessage(message.speaker, message.message, usage);
+		}
+		
+		console.log('💾 [사용량 정보가 포함된 메시지 처리 완료]', {
+			메시지: message.message,
+			사용량: usage
+		});
+	}
+
 	function handleSpeaking(event) {
 		console.log('AI speaking:', event.detail);
+		isSpeaking = event.detail;
 	}
 
 	function handleError(event) {
 		console.error('Agent error:', event.detail);
 		error = event.detail;
 		isDisconnecting = false;
+		isConnecting = false;
 	}
 
 	function handleDebug(event) {
@@ -128,9 +236,52 @@
 		error = event.detail;
 	}
 
+	// PromptCustomizer 이벤트 핸들러
+	function handlePromptUpdated(event) {
+		customPrompt = event.detail.prompt;
+		promptId = event.detail.promptId || null;
+		promptName = event.detail.promptName || '';
+		console.log('프롬프트 업데이트됨:', {
+			prompt: customPrompt,
+			promptId,
+			promptName
+		});
+		
+		// 연결 중이면 알림 메시지 표시
+		if (isConnected) {
+			const messageWithTimestamp = {
+				speaker: '시스템',
+				message: `🔄 프롬프트가 "${promptName}"로 업데이트되었습니다. 다음 연결 시 새로운 설정이 적용됩니다.`,
+				timestamp: new Date().toLocaleTimeString()
+			};
+			messages = [...messages, messageWithTimestamp];
+			
+			if (conversationManager) {
+				conversationManager.addMessage(messageWithTimestamp.speaker, messageWithTimestamp.message);
+			}
+		}
+	}
+
 	// 탭 전환
 	function toggleHistoryView() {
+		console.log('대화 기록 탭 클릭, 현재 상태:', { showHistory, showPromptCustomizer });
 		showHistory = !showHistory;
+		showPromptCustomizer = false;
+		console.log('대화 기록 탭 변경 후:', { showHistory, showPromptCustomizer });
+	}
+	
+	function togglePromptCustomizer() {
+		console.log('프롬프트 관리 탭 클릭, 현재 상태:', { showHistory, showPromptCustomizer });
+		showPromptCustomizer = !showPromptCustomizer;
+		showHistory = false;
+		console.log('프롬프트 관리 탭 변경 후:', { showHistory, showPromptCustomizer });
+	}
+
+	function selectCurrentTab() {
+		console.log('현재 대화 탭 클릭, 현재 상태:', { showHistory, showPromptCustomizer });
+		showHistory = false;
+		showPromptCustomizer = false;
+		console.log('현재 대화 탭 변경 후:', { showHistory, showPromptCustomizer });
 	}
 </script>
 
@@ -178,6 +329,22 @@
 			</div>
 		{:else}
 			<!-- 로그인한 사용자 - AI 기능 -->
+			<!-- 실시간 에이전트 컴포넌트 (먼저 마운트해야 bind:this가 설정됨) -->
+			<RealtimeAgent
+				bind:this={realtimeAgent}
+				{customPrompt}
+				conversationId={$currentConversation.id}
+				on:connecting={handleConnecting}
+				on:connected={handleConnected}
+				on:disconnecting={handleDisconnecting}
+				on:disconnected={handleDisconnected}
+				on:speaking={handleSpeaking}
+				on:message={handleMessage}
+				on:message-with-usage={handleMessageWithUsage}
+				on:debug={handleDebug}
+				on:error={handleError}
+			/>
+			
 			<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 				<!-- 메인 대화 영역 -->
 				<div class="lg:col-span-2 space-y-6">
@@ -186,6 +353,9 @@
 						bind:this={conversationManager}
 						{isConnected}
 						{isConnecting}
+						{customPrompt}
+						{promptId}
+						{promptName}
 						on:conversation-started={handleConversationStarted}
 						on:conversation-ended={handleConversationEnded}
 						on:error={handleConversationError}
@@ -225,49 +395,51 @@
 					<div class="bg-white rounded-lg shadow p-4">
 						<div class="flex border-b border-gray-200">
 							<button
-								class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {!showHistory 
+								class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {!showHistory && !showPromptCustomizer
 									? 'border-blue-500 text-blue-600' 
 									: 'border-transparent text-gray-500 hover:text-gray-700'}"
-								on:click={() => showHistory = false}
-							>
+								on:click={selectCurrentTab}
+							> 
 								현재 대화
 							</button>
 							<button
 								class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {showHistory 
 									? 'border-blue-500 text-blue-600' 
 									: 'border-transparent text-gray-500 hover:text-gray-700'}"
-								on:click={() => showHistory = true}
+								on:click={toggleHistoryView}
 							>
 								대화 기록
+							</button>
+							<button
+								class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {showPromptCustomizer 
+									? 'border-blue-500 text-blue-600' 
+									: 'border-transparent text-gray-500 hover:text-gray-700'}"
+								on:click={togglePromptCustomizer}
+							>
+								프롬프트 관리
 							</button>
 						</div>
 					</div>
 
-					{#if !showHistory}
-						<!-- 현재 대화 로그 -->
-						<ConversationLog {messages} />
-					{:else}
+					{#if showPromptCustomizer}
+						<!-- 프롬프트 관리 -->
+						<PromptCustomizer 
+							{isConnected}
+							{customPrompt}
+							on:prompt-updated={handlePromptUpdated}
+						/>
+						{console.log('프롬프트 관리 컴포넌트 렌더링')}
+					{:else if showHistory}
 						<!-- 저장된 대화 기록 -->
 						<ConversationHistory />
+						{console.log('대화 기록 컴포넌트 렌더링')}
+					{:else}
+						<!-- 현재 대화 로그 -->
+						<ConversationLog {messages} />
+						{console.log('현재 대화 로그 컴포넌트 렌더링')}
 					{/if}
 				</div>
 			</div>
-			
-			<!-- 실시간 에이전트 컴포넌트 -->
-			<RealtimeAgent
-				bind:this={realtimeAgent}
-				bind:isConnected
-				bind:isConnecting
-				bind:isSpeaking
-				bind:isDisconnecting
-				bind:error
-				on:connected={handleConnected}
-				on:disconnected={handleDisconnected}
-				on:speaking={handleSpeaking}
-				on:message={handleMessage}
-				on:debug={handleDebug}
-				on:error={handleError}
-			/>
 		{/if}
 	</div>
 </div>
