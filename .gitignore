@@ -24,4 +24,3 @@ vite.config.ts.timestamp-*
 
 # Package
 package-lock.json
-package.json
